@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 import json
 from datetime import datetime
+import math
 
 
 app=Flask(__name__)
@@ -19,39 +20,59 @@ app.config['SQLALCHEMY_DATABASE_URI']='mysql+pymysql://admin:zy112612@e6156-1.cu
 app.config['SQLALCHEMY_COMMIT_ON_TEARDOWN']=True
 db=SQLAlchemy(app)
 
-#测试连上
-with app.app_context():
-    sql = 'select * from Customers'
-    result = db.session.execute(sql).fetchall()
+#{ "email": "wg@gmail.com","password": "0002"}
+@app.before_request
+def check_login():
+    if request.path == '/customer/login':
+        data = json.loads(request.get_data())
+        password = data['password']
+        email = data['email']
+        
+        try:
+            sql = "SELECT * FROM Customers where email = '{}' ".format(email)
+            result = db.session.execute(sql).fetchone()
+        except Exception as err:
+            return {"state": False, "message": "error! input error"}
+        if result:
+            stored_password= result[2]
+            if stored_password != password:
+                
+                print("unmatch")
+                return {"state": False,"message":"password unmatch"}
+               
+        else:
+            return {"state": False, "message": "please register"}
+        
+
+
+# @app.after_request
+# def check_login():
+#     if request.path == '/customer/login':
+#         data = json.loads(request.get_data())
+#         username = data['username']
+#         password = data['password']
+#         email = data['email']
+#         address = data['address']
+
+#         json_list=[]
+     
+#         try:
+#             sql = "SELECT * FROM Customers where email = '{}' ".format(email)
+#             result = db.session.execute(sql).fetchone()
+#         except Exception as err:
+#             return {"state": False, "message": "error! input error"}
+#         for row in result:
+#                 json_list.append([x for x in row])  
+#         return json_list
     
 
  
-@app.route('/', methods=['GET'], defaults={"page":1})
+@app.route('/', methods=['GET'])
 def home():
     return 'Hello World!'
 
 
-@app.route('/page_search/<page>', methods=['GET'])
-def page_search(page):
-    page=int(page)-1
-    pages=5
-    sql = 'select * from Customers'
-    result = db.session.execute(sql).fetchall()
-    max_page=round(len(result)/pages)+1
-    # print(max_page)
-    if page < max_page:
-        try:
-            sql = "select * from Customers LIMIT {} OFFSET {} ".format(pages, page*5)
-            result = db.session.execute(sql).fetchall()
-        except Exception as err:
-            return {"state": False, "message": "error! input error"}
-        json_list=[]
-        for row in result:
-            json_list.append([x for x in row])  
-        return json_list
-    else: 
-        return {"state": False, "message": "error! do not have data"}
-        
+
     
     
 
@@ -95,7 +116,7 @@ def register():
 #{email: string, username:string}
 #{state: True/False message: string, explain whether login is successful or not,}
 
-@app.route('/customer/googlelogin', methods=['GET', 'POST'])
+@app.route('/customer/googleLogin', methods=['GET', 'POST'])
 def google_login():
     
     if request.method == 'POST':
@@ -125,36 +146,21 @@ def google_login():
     return response
 
 
-@app.route('/customer/login', methods=['GET', 'POST'])
-def login():
+@app.route('/customer/login',methods=['GET','POST'])
+def login(): 
+    data = json.loads(request.get_data())
     
-    if request.method == 'POST':
-        data = json.loads(request.get_data())
-        password = data['password']
-        email = data['email']
-        
-        try:
-            sql = "SELECT * FROM Customers where email = '{}' ".format(email)
-            result = db.session.execute(sql).fetchone()
-        except Exception as err:
+    email = data['email']
+    try:
+        sql = "SELECT * FROM Customers where email = '{}' ".format(email)
+        result = db.session.execute(sql).fetchone()
+    except Exception as err:
             return {"state": False, "message": "error! input error"}
-        
-        if result :
-            stored_username= result[1]
-            stored_password= result[2]
-            stored_address= result[3]
-            print(stored_username)
-            if stored_password == password:
-                print("successfully")
-                response= {"state": True, "message":"login successfully", "username": stored_username, "address": stored_address}
-            else:
-                print("unmatch")
-                response= {"state": False,"message":"password unmatch"}
-        else:
-            print("please register")
-            response= {"state": False, "message": "you need to register firstly"}
-        
-    return response
+    print("successfully")
+    username= result[1]
+    address= result[3]
+
+    return {"state": True, "message":"login successfully", "username": username, "address": address}
 
 @app.route('/customer/modifyPassword', methods=['GET', 'POST'])
 def customer_modify_password():
@@ -215,20 +221,35 @@ def customer_modify_information():
 
         return msg
 
-@app.route("/customer/history", methods=['POST'])
-def get_customer_history():
-    rsp=""
+
+
+# {"email": "wg@gmail.com"}
+@app.route("/customer/history/<page>", methods=['POST'])
+def get_customer_history(page):
+    page=int(page)-1
+    pages=5
     if request.method == 'POST':
         data = json.loads(request.get_data())
         email = data['email']
-        sql = "SELECT o.OID, o.Time, o.Status FROM Places p, Orders o WHERE p.Email = '{}' AND p.OID = o.OID".format(email)
+        sql = "SELECT o.OID, o.Time FROM Places p, Orders o WHERE p.Email = '{}' AND p.OID = o.OID".format(email)
         result = db.session.execute(sql).fetchall()
-        json_list=[]
-        for row in result:
-            json_list.append([x for x in row])       
-
-    return json_list
-
+        print(result)
+        print(len(result))
+        max_page=math.ceil(len(result)/pages)
+        print(max_page)
+        if page < max_page:
+            try:
+                sql = "SELECT o.OID, o.Time FROM Places p, Orders o WHERE p.Email = '{}' AND p.OID = o.OID LIMIT {} OFFSET {} ".format(email, pages, page*5)
+                result2 = db.session.execute(sql).fetchall()
+            except Exception as err:
+                return {"state": False, "message": "error! input error"}
+            json_list=[]
+            for row in result2:
+                json_list.append([x for x in row])  
+            return {"max_page": max_page, "history": json_list}
+        else: 
+            return {"state": False, "message": "error! do not have data"}
+        
 
 
 
@@ -264,6 +285,7 @@ def customer_place_order():
 
         response["message"]= True
         response['state']= True
+        response['oid']= oid
 
     return response
 
